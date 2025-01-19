@@ -1,11 +1,11 @@
 ﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Linq;
 using System.Threading;
 
 class Program
 {
-    // Importing the necessary function to get idle time
     [DllImport("user32.dll")]
     public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
 
@@ -16,122 +16,156 @@ class Program
         public uint dwTime;
     }
 
-    private static string logFilePath = "activity_log.txt"; // Log file path
-    private static DateTime lastStartTime;
+    private static string logFilePath = "activity_log.txt";
+    private static DateTime sessionStartTime;
     private static DateTime lastInputTime;
-    private static int maxIdleTimeInMinutes = 1; // Maximum idle time in minutes before stopping tracking
+    private static int maxIdleTimeInSeconds = 5 * 60; // Adjusted for easier testing
+    private static int idleCount = 0; // Count of idle occurrences
+    private static TimeSpan totalActiveTimeToday = TimeSpan.Zero;
 
     static void Main()
     {
-        // Check if log file exists and read the last total time if it does
-        double totalTime = 0;
-        if (File.Exists(logFilePath))
+        while (true)
         {
-            string[] logLines = File.ReadAllLines(logFilePath);
-            if (logLines.Length > 0)
+            Console.Clear();
+            Console.WriteLine("Select an option:");
+            Console.WriteLine("1. Show total time taken based on date");
+            Console.WriteLine("2. Record time");
+            Console.Write("Enter your choice: ");
+
+            string choice = Console.ReadLine();
+            switch (choice)
             {
-                string lastLine = logLines[logLines.Length - 1];
-                if (lastLine.StartsWith("Total Time"))
-                {
-                    // Extract the last total time from the last line
-                    string[] parts = lastLine.Split(':');
-                    if (parts.Length > 1 && double.TryParse(parts[1].Trim(), out double previousTotalTime))
-                    {
-                        totalTime = previousTotalTime;
-                    }
-                }
+                case "1":
+                    ShowTotalTime();
+                    break;
+                case "2":
+                    RecordTime();
+                    Console.ReadKey();
+                    break;
+                default:
+                    Console.WriteLine("Invalid choice. Try again.");
+                    break;
             }
         }
+    }
 
-        while (true)
+    static void ShowTotalTime()
+    {
+        if (!File.Exists(logFilePath))
+        {
+            Console.WriteLine("No data available.");
+        }
+        else
+        {
+            var logData = File.ReadAllLines(logFilePath)
+                .Select(line => line.Split(','))
+                .Where(parts => parts.Length == 3)
+                .Select(parts => new
+                {
+                    Date = DateTime.Parse(parts[0]).Date,
+                    Duration = TimeSpan.FromSeconds(double.Parse(parts[2]))
+                })
+                .GroupBy(entry => entry.Date)
+                .Select(group => new
+                {
+                    Date = group.Key,
+                    TotalDuration = group.Aggregate(TimeSpan.Zero, (sum, entry) => sum + entry.Duration)
+                });
+
+            Console.WriteLine("\nTotal Time by Date:");
+            foreach (var entry in logData)
+            {
+                Console.WriteLine(@$"{entry.Date:MMM dd, yyyy} - {entry.TotalDuration:hh\:mm\:ss}");
+            }
+        }
+        Console.WriteLine("\nPress any key to return to the menu...");
+        Console.ReadKey();
+    }
+    static void RecordTime()
+    {
+        DateTime currentDate = DateTime.Now.Date;
+        idleCount = 0;
+        totalActiveTimeToday = GetTotalTimeForToday(currentDate);
+
+        sessionStartTime = DateTime.Now;
+        lastInputTime = DateTime.Now;
+
+        bool isRunning = true;
+
+        while (isRunning)
         {
             var lastInputInfo = new LASTINPUTINFO();
             lastInputInfo.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
 
             if (GetLastInputInfo(ref lastInputInfo))
             {
-                uint idleTime = (uint)Environment.TickCount - lastInputInfo.dwTime;
-                var idleTimeInSeconds = idleTime / 1000;
+                uint idleTimeMilliseconds = (uint)Environment.TickCount - lastInputInfo.dwTime;
+                var idleTimeInSeconds = idleTimeMilliseconds / 1000;
 
-                Console.Clear();
-                Console.WriteLine($"Idle Time: {idleTimeInSeconds} seconds");
-
-                if (idleTimeInSeconds == 0)
+                if (idleTimeInSeconds >= maxIdleTimeInSeconds)
                 {
-                    // System is active
-                    if (lastStartTime == default)
-                    {
-                        lastStartTime = DateTime.Now;
-                        Console.WriteLine("System is active! Tracking start time.");
-                    }
-
-                    // Update last input time to the current time (system is active)
-                    lastInputTime = DateTime.Now;
+                    // Log active time if idle for too long
+                    LogActiveTime(true);
                 }
                 else
                 {
-                    // If the system is idle, calculate the idle duration and check for max idle time
-                    if (lastStartTime != default)
-                    {
-                        // Calculate the time since last input
-                        TimeSpan idleDuration = DateTime.Now - lastInputTime;
-                        if (idleDuration.TotalMinutes >= maxIdleTimeInMinutes)
-                        {
-                            // Max idle time exceeded, stop tracking
-                            DateTime endTime = DateTime.Now;
-                            TimeSpan activeDuration = endTime - lastStartTime;
-
-                            // Log the activity and total time
-                            LogActivity(lastStartTime, endTime, activeDuration);
-
-                            totalTime += activeDuration.TotalSeconds;
-
-                            // Reset start time
-                            lastStartTime = default;
-
-                            Console.WriteLine("Max idle time reached, ending tracking.");
-                        }
-                    }
+                    // User is active, update lastInputTime and continue
+                    lastInputTime = DateTime.Now;
                 }
 
-                Thread.Sleep(1000); // Check every second
-            }
-        }
-    }
+                Console.Clear();
+                Console.WriteLine(@$"Running Time: {(DateTime.Now - sessionStartTime):hh\:mm\:ss}");
+                Console.WriteLine($"Idle Time: {(idleTimeInSeconds >= maxIdleTimeInSeconds ? idleTimeInSeconds : 0):F0} sec");
+                Console.WriteLine($"{currentDate:MMMM dd, yyyy}");
+                Console.WriteLine($"Idle Count: {idleCount}");
+                Console.WriteLine(@$"Total Time Taken ({currentDate:MMMM dd, yyyy}): {totalActiveTimeToday + (DateTime.Now - sessionStartTime):hh\:mm\:ss}");
 
-    static void LogActivity(DateTime startTime, DateTime endTime, TimeSpan duration)
-    {
-        string logEntry = $"Start Time: {startTime}, End Time: {endTime}, Duration: {duration.TotalSeconds} seconds";
-
-        // Append to the log file
-        File.AppendAllText(logFilePath, logEntry + Environment.NewLine);
-
-        // After logging, append the total time at the end
-        string totalTimeLog = $"Total Time: {GetTotalTime()} seconds";
-        File.AppendAllText(logFilePath, totalTimeLog + Environment.NewLine);
-    }
-
-    static double GetTotalTime()
-    {
-        double totalTime = 0;
-
-        if (File.Exists(logFilePath))
-        {
-            string[] logLines = File.ReadAllLines(logFilePath);
-            foreach (var line in logLines)
-            {
-                if (line.StartsWith("Duration"))
+                // Check if user pressed 'S' to stop
+                Console.WriteLine("Press 'S' to stop the timer and log the time.");
+                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.S)
                 {
-                    // Extract the duration from the log line
-                    string[] parts = line.Split(':');
-                    if (parts.Length > 1 && double.TryParse(parts[1].Trim().Split(' ')[0], out double duration))
-                    {
-                        totalTime += duration;
-                    }
+                    isRunning = false; // Stop the loop when 'S' is pressed
                 }
+
+                Thread.Sleep(1000);
             }
         }
 
-        return totalTime;
+        // Log the active time when stopped
+        LogActiveTime();
+        Console.WriteLine("\nTimer stopped. Time logged.");
+    }
+
+
+
+    static TimeSpan GetTotalTimeForToday(DateTime date)
+    {
+        if (!File.Exists(logFilePath))
+            return TimeSpan.Zero;
+
+        return File.ReadAllLines(logFilePath)
+            .Where(line => line.StartsWith(date.ToString("yyyy-MM-dd")))
+            .Select(line => line.Split(',')[2])
+            .Select(duration => TimeSpan.FromSeconds(double.Parse(duration)))
+            .Aggregate(TimeSpan.Zero, (total, next) => total.Add(next));
+    }
+
+
+    private static void LogActiveTime(bool isToVerifyThreshold = false)
+    {
+        DateTime now = DateTime.Now;
+        TimeSpan activeDuration = now - sessionStartTime;
+
+        // Log active time only if it's greater than idle time threshold
+        if (isToVerifyThreshold == false || activeDuration.TotalSeconds > maxIdleTimeInSeconds)
+        {
+            string logEntry = $"{sessionStartTime:yyyy-MM-dd HH:mm:ss},{now:yyyy-MM-dd HH:mm:ss},{activeDuration.TotalSeconds}";
+            File.AppendAllText(logFilePath, logEntry + Environment.NewLine);
+
+            totalActiveTimeToday += activeDuration;
+        }
+
+        sessionStartTime = now; // Reset session start time
     }
 }
