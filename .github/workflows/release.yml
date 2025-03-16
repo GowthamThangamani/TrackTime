@@ -21,12 +21,12 @@ jobs:
         with:
           dotnet-version: '6.0.x' # Specify the .NET version
 
-      # Step 3: Build Project and Create Executable
+      # Step 3: Build Project (Framework-Dependent)
       - name: Build Project
-        run: dotnet publish -c Release -r win-x64 --self-contained true -o ./dist
+        run: dotnet publish -c Release -r win-x64 --self-contained false -o ./dist
 
-      # Step 4: Archive the Executable
-      - name: Archive Executable
+      # Step 4: Archive the Build
+      - name: Archive Build
         run: zip -j ./dist/release-asset.zip ./dist/*
 
       # Step 5: List Directory Contents for Debugging
@@ -48,7 +48,7 @@ jobs:
           draft: false
           prerelease: false
 
-      # Step 7: Upload the Release Asset
+      # Step 7: Upload Release Asset
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
