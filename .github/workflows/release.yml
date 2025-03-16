@@ -15,24 +15,32 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2: Build and archive the asset
+      # Step 2: Setup .NET
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '6.0.x' # Specify the .NET version
+
+      # Step 3: Build Project and Create Executable
       - name: Build Project
-        run: dotnet publish -c Release -o ./dist
+        run: dotnet publish -c Release -r win-x64 --self-contained true -o ./dist
 
-      - name: Archive Asset
-        run: zip -r ./dist/release-asset.zip ./dist/*
+      # Step 4: Archive the Executable
+      - name: Archive Executable
+        run: zip -j ./dist/release-asset.zip ./dist/*
 
+      # Step 5: List Directory Contents for Debugging
       - name: List Directory Contents
         run: ls -R ./dist
 
-      # Step 3: Create a release
+      # Step 6: Create GitHub Release
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.MY_GITHUB_PAT }}
         with:
-          tag_name: ${{ github.ref_name }} # Use the tag name that triggered the workflow
+          tag_name: ${{ github.ref_name }}
           release_name: Release ${{ github.ref_name }}
           body: |
             ## Changes in this release
@@ -40,8 +48,8 @@ jobs:
           draft: false
           prerelease: false
 
-      # Step 4: Upload the release asset
-      - name: Upload Release Assets
+      # Step 7: Upload the Release Asset
+      - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.MY_GITHUB_PAT }}
