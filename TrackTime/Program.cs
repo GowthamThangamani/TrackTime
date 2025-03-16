@@ -19,9 +19,10 @@ class Program
     private static string logFilePath = "activity_log.txt";
     private static DateTime sessionStartTime;
     private static DateTime lastInputTime;
-    private static int maxIdleTimeInSeconds = 5 * 60; // Adjusted for easier testing
-    private static int idleCount = 0; // Count of idle occurrences
+    private static int maxIdleTimeInSeconds = 5 * 60; // Adjust as needed
+    private static int idleCount = 0;
     private static TimeSpan totalActiveTimeToday = TimeSpan.Zero;
+    private static string currentTaskDescription = ""; // Stores the task description
 
     static void Main()
     {
@@ -55,35 +56,62 @@ class Program
         if (!File.Exists(logFilePath))
         {
             Console.WriteLine("No data available.");
+            return;
         }
-        else
-        {
-            var logData = File.ReadAllLines(logFilePath)
-                .Select(line => line.Split(','))
-                .Where(parts => parts.Length == 3)
-                .Select(parts => new
-                {
-                    Date = DateTime.Parse(parts[0]).Date,
-                    Duration = TimeSpan.FromSeconds(double.Parse(parts[2]))
-                })
-                .GroupBy(entry => entry.Date)
-                .Select(group => new
-                {
-                    Date = group.Key,
-                    TotalDuration = group.Aggregate(TimeSpan.Zero, (sum, entry) => sum + entry.Duration)
-                });
 
-            Console.WriteLine("\nTotal Time by Date:");
-            foreach (var entry in logData)
+        var logData = File.ReadAllLines(logFilePath)
+            .Select(line => line.Split(','))
+            .Where(parts => parts.Length == 4)
+            .Select(parts => new
             {
-                Console.WriteLine(@$"{entry.Date:MMM dd, yyyy} - {entry.TotalDuration:hh\:mm\:ss}");
+                Date = DateTime.Parse(parts[0]).Date,
+                Description = parts[3],
+                Duration = TimeSpan.FromSeconds(double.Parse(parts[2]))
+            })
+            .GroupBy(entry => entry.Date)
+            .Select(group => new
+            {
+                Date = group.Key,
+                Tasks = group.GroupBy(task => task.Description)
+                             .Select(taskGroup => new
+                             {
+                                 TaskDescription = taskGroup.Key,
+                                 TaskDuration = taskGroup.Aggregate(TimeSpan.Zero, (sum, task) => sum + task.Duration)
+                             })
+            });
+
+        Console.WriteLine("\n| Date         | Task Description       | Duration      |");
+        Console.WriteLine("|--------------|------------------------|---------------|");
+
+        foreach (var entry in logData)
+        {
+            foreach (var task in entry.Tasks)
+            {
+                Console.WriteLine($"| {entry.Date,-13:MMM dd, yyyy} | {task.TaskDescription,-22} | {FormatDuration(task.TaskDuration),-13} |");
             }
         }
+
         Console.WriteLine("\nPress any key to return to the menu...");
         Console.ReadKey();
     }
+
+    static string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalSeconds < 60)
+            return $"{duration.Seconds} sec";
+        if (duration.TotalMinutes < 60)
+            return $"{duration.Minutes} min {duration.Seconds} sec";
+
+        return $"{(int)duration.TotalHours} hr {duration.Minutes} min {duration.Seconds} sec";
+    }
+
+
+
     static void RecordTime()
     {
+        Console.Write("Enter a description for this session (e.g., 'Task Billing', 'Testing', etc.): ");
+        currentTaskDescription = Console.ReadLine(); // Capture the task description
+
         DateTime currentDate = DateTime.Now.Date;
         idleCount = 0;
         totalActiveTimeToday = GetTotalTimeForToday(currentDate);
@@ -105,13 +133,11 @@ class Program
 
                 if (idleTimeInSeconds >= maxIdleTimeInSeconds)
                 {
-                    // Log active time if idle for too long
-                    LogActiveTime(true);
+                    LogActiveTime(true); // Log active time if idle for too long
                 }
                 else
                 {
-                    // User is active, update lastInputTime and continue
-                    lastInputTime = DateTime.Now;
+                    lastInputTime = DateTime.Now; // Update lastInputTime
                 }
 
                 Console.Clear();
@@ -120,9 +146,8 @@ class Program
                 Console.WriteLine($"{currentDate:MMMM dd, yyyy}");
                 Console.WriteLine($"Idle Count: {idleCount}");
                 Console.WriteLine(@$"Total Time Taken ({currentDate:MMMM dd, yyyy}): {totalActiveTimeToday + (DateTime.Now - sessionStartTime):hh\:mm\:ss}");
-
-                // Check if user pressed 'S' to stop
                 Console.WriteLine("Press 'S' to stop the timer and log the time.");
+
                 if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.S)
                 {
                     isRunning = false; // Stop the loop when 'S' is pressed
@@ -132,12 +157,9 @@ class Program
             }
         }
 
-        // Log the active time when stopped
-        LogActiveTime();
+        LogActiveTime(); // Log the active time when stopped
         Console.WriteLine("\nTimer stopped. Time logged.");
     }
-
-
 
     static TimeSpan GetTotalTimeForToday(DateTime date)
     {
@@ -151,7 +173,6 @@ class Program
             .Aggregate(TimeSpan.Zero, (total, next) => total.Add(next));
     }
 
-
     private static void LogActiveTime(bool isToVerifyThreshold = false)
     {
         DateTime now = DateTime.Now;
@@ -160,7 +181,7 @@ class Program
         // Log active time only if it's greater than idle time threshold
         if (isToVerifyThreshold == false || activeDuration.TotalSeconds > maxIdleTimeInSeconds)
         {
-            string logEntry = $"{sessionStartTime:yyyy-MM-dd HH:mm:ss},{now:yyyy-MM-dd HH:mm:ss},{activeDuration.TotalSeconds}";
+            string logEntry = $"{sessionStartTime:yyyy-MM-dd HH:mm:ss},{now:yyyy-MM-dd HH:mm:ss},{activeDuration.TotalSeconds},{currentTaskDescription}";
             File.AppendAllText(logFilePath, logEntry + Environment.NewLine);
 
             totalActiveTimeToday += activeDuration;
