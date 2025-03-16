@@ -3,7 +3,7 @@ name: Release Automation
 on:
   push:
     tags:
-      - 'v*' # Triggers the workflow when a tag starting with 'v' is pushed
+      - 'v*' # Trigger the workflow on tags starting with 'v'
 
 jobs:
   release:
@@ -20,7 +20,7 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_PAT }}
         with:
           tag_name: ${{ github.ref_name }} # Use the tag name that triggered the workflow
           release_name: Release ${{ github.ref_name }}
@@ -30,13 +30,13 @@ jobs:
           draft: false
           prerelease: false
 
-      # Step 3: Upload assets (optional)
+      # Step 3: Upload assets
       - name: Upload Release Assets
         uses: actions/upload-release-asset@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.MY_GITHUB_PAT }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./path/to/your/asset.zip # Replace with your asset file path
-          asset_name: asset.zip
+          asset_path: ./dist/release-asset.zip # Adjust this to the correct file path
+          asset_name: release-asset.zip
           asset_content_type: application/zip
